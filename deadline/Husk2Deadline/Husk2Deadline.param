@@ -1,0 +1,16 @@
+[About]
+Description=Renders USD stages directly with SideFX husk (Karma / any Hydra delegate).
+Author=Custom Studio Plugin
+Version=1.0
+
+[HuskExecutable]
+Type=multifilename
+Label=Husk Executable
+Description=Full path to husk (usually <Houdini>/bin/husk.exe or husk on Linux). You can use version tokens if your farm uses them.
+DefaultValue=
+
+[Plugin]
+Type=string
+Label=Plugin Name
+DefaultValue=Husk2Deadline
+Disabled=true
