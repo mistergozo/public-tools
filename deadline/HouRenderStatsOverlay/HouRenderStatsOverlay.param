@@ -1,0 +1,22 @@
+[About]
+Description=Generates a PNG/JPG with Karma render statistics overlaid or sidebared on an EXR (using SideFX renderstatsoverlay via hython).
+Author=Custom Studio Plugin
+Version=1.1
+
+[HythonExecutable]
+Type=multifilename
+Label=Hython Executable
+Description=Full path to hython (usually <Houdini>/bin/hython.exe or hython on Linux). This is more reliable than the .bat wrapper under Deadline.
+DefaultValue=
+
+[RenderStatsOverlayScript]
+Type=string
+Label=renderstatsoverlay.py Script
+Description=Path (or just the filename) of the renderstatsoverlay.py script. If you leave it as the default "renderstatsoverlay.py", hython will find it the same way your local test did (when run from the Houdini bin folder or with Houdini's Python path).
+DefaultValue=renderstatsoverlay.py
+
+[Plugin]
+Type=string
+Label=Plugin Name
+DefaultValue=HouRenderStatsOverlay
+Disabled=true

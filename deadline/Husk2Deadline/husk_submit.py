@@ -1,10 +1,14 @@
 """
-husk_submit.py – Lightweight Houdini → Deadline submitter for Husk2Deadline.
+husk_submit.py – Lightweight Houdini → Deadline submitter for Husk2Deadline
++ optional dependent HouRenderStatsOverlay job.
 
 Call from an HDA / shelf / button:
 
     import husk_submit
-    husk_submit.submit(kwargs["node"])
+    husk_submit.submit(kwargs["node"])                # main husk job (+ optional overlay)
+
+    # or standalone overlay on already-rendered EXRs:
+    husk_submit.submit_renderstats_overlay(kwargs["node"])
 
 Only the options you actually need are exposed.  No dependency on the
 official Deadline Houdini submission modules.
@@ -13,8 +17,8 @@ official Deadline Houdini submission modules.
 from __future__ import print_function
 
 import os
+import re
 import sys
-import json
 import getpass
 import tempfile
 import time
@@ -24,27 +28,81 @@ import hou
 
 
 # ---------------------------------------------------------------------------
-# Public entry point
+# Public entry points
 # ---------------------------------------------------------------------------
 def submit(node):
     """
     Submit a Husk2Deadline job from a Houdini node that has the expected parameters.
-    Returns the Deadline job ID (string) or None on failure.
+    Optionally also submits a dependent HouRenderStatsOverlay job when the
+    toggle `generate_renderstatsoverlay_job` is enabled.
+
+    Returns the main Deadline job ID (string) or None on failure.
     """
     try:
-        job_info, plugin_info = _build_info_files(node)
+        job_info, plugin_info = _build_husk_info_files(node)
         job_id = _submit_to_deadline(job_info, plugin_info)
-        if job_id:
-            hou.ui.setStatusMessage(
-                "Submitted Husk2Deadline job: {}".format(job_id),
-                severity=hou.severityType.Message,
-            )
-            print("Husk2Deadline → Deadline job ID: {}".format(job_id))
+
+        if not job_id:
+            return None
+
+        hou.ui.setStatusMessage(
+            "Submitted Husk2Deadline job: {}".format(job_id),
+            severity=hou.severityType.Message,
+        )
+        print("Husk2Deadline → Deadline job ID: {}".format(job_id))
+
+        # Optional dependent overlay job
+        if _parm_bool(node, "generate_renderstatsoverlay_job", False):
+            overlay_id = _submit_dependent_overlay(node, job_id)
+            if overlay_id:
+                print("HouRenderStatsOverlay (dependent) → Deadline job ID: {}".format(overlay_id))
+                hou.ui.setStatusMessage(
+                    "Submitted Husk2Deadline + dependent overlay: {} → {}".format(job_id, overlay_id),
+                    severity=hou.severityType.Message,
+                )
+
         return job_id
-    except Exception as exc:
+
+    except Exception:
         msg = "Husk2Deadline submission failed:\n{}".format(traceback.format_exc())
         print(msg)
         hou.ui.displayMessage(msg, title="Husk2Deadline Submit", severity=hou.severityType.Error)
+        return None
+
+
+def submit_renderstats_overlay(node):
+    """
+    Standalone submitter for HouRenderStatsOverlay.
+    Useful for already-rendered EXR sequences (no husk job required).
+
+    Expected HDA parameters (most are optional and have sensible defaults):
+
+        jobname, comment, pool, secondarypool, group, priority,
+        framespertask, jobsuspended,
+        frangex, frangey, fmlonly, frameinc,
+        inputimage          (required – path with $F4 / #### tokens)
+        outputimage         (optional)
+        rs_mode, rs_align, rs_scale, rs_width, rs_edge, rs_margin,
+        rs_colorspace, rs_template, rs_aov, rs_resize, rs_extras
+
+    Returns the Deadline job ID or None.
+    """
+    try:
+        job_info, plugin_info = _build_overlay_info_files(node, dependency_job_id=None)
+        job_id = _submit_to_deadline(job_info, plugin_info)
+
+        if job_id:
+            hou.ui.setStatusMessage(
+                "Submitted HouRenderStatsOverlay job: {}".format(job_id),
+                severity=hou.severityType.Message,
+            )
+            print("HouRenderStatsOverlay → Deadline job ID: {}".format(job_id))
+        return job_id
+
+    except Exception:
+        msg = "HouRenderStatsOverlay submission failed:\n{}".format(traceback.format_exc())
+        print(msg)
+        hou.ui.displayMessage(msg, title="RenderStats Overlay Submit", severity=hou.severityType.Error)
         return None
 
 
@@ -102,9 +160,9 @@ def _build_frames(start, end, inc=1, fml_only=False):
 
 
 # ---------------------------------------------------------------------------
-# Build the two temporary .job files Deadline expects
+# Build info files for the main husk job
 # ---------------------------------------------------------------------------
-def _build_info_files(node):
+def _build_husk_info_files(node):
     user = getpass.getuser()
     timestamp = time.strftime("%y-%m-%d %H:%M:%S")
 
@@ -118,13 +176,11 @@ def _build_info_files(node):
     chunk_size     = _parm_int(node, "framespertask", 1)
     suspended      = _parm_bool(node, "jobsuspended", False)
 
-    # Frame range (vector2-style x/y or separate ints)
+    # Frame range
     start = _parm_int(node, "frangex", int(hou.frame()))
     end   = _parm_int(node, "frangey", int(hou.frame()))
-
-    # New controls
-    fml_only = _parm_bool(node, "fmlonly", False)
-    frame_inc = _parm_int(node, "frameinc", 1)   # 0 is meaningful
+    fml_only  = _parm_bool(node, "fmlonly", False)
+    frame_inc = _parm_int(node, "frameinc", 1)
 
     frames = _build_frames(start, end, frame_inc, fml_only)
 
@@ -143,13 +199,7 @@ def _build_info_files(node):
     log_level      = _parm_int(node, "usdloglevel", 2)
 
     # Output image (supports $F4 etc. – the plugin expands the token)
-    outdir   = _parm(node, "outdir", "")
-    imgname  = _parm(node, "imgname", "render")
-    ver      = _parm_int(node, "ver", 1)
-    ver_str  = "v{:02d}".format(ver)
-    output_image = ""
-    if outdir and imgname:
-        output_image = "{}/{}/{}/{}.$F4.exr".format(outdir.rstrip("/\\"), imgname, ver_str, imgname)
+    output_image = _get_husk_output_image(node)
 
     if not usd_file or not os.path.exists(usd_file):
         raise RuntimeError("USD file does not exist: {}".format(usd_file))
@@ -170,8 +220,6 @@ def _build_info_files(node):
     if suspended:
         job_lines.append("InitialStatus=Suspended")
 
-    # Optional machine limit / blacklist etc. can be added here later
-
     # ---- Plugin Info ----
     plugin_lines = [
         "SceneFile={}".format(usd_file.replace("\\", "/")),
@@ -185,10 +233,203 @@ def _build_info_files(node):
         "Extras={}".format(extras),
     ]
 
-    # Write temporary files
+    return _write_temp_job_files("husk2deadline", job_lines, plugin_lines)
+
+
+# ---------------------------------------------------------------------------
+# Dependent / standalone overlay job
+# ---------------------------------------------------------------------------
+def _submit_dependent_overlay(node, husk_job_id):
+    """Build and submit a HouRenderStatsOverlay job that depends on the husk job."""
+    job_info, plugin_info = _build_overlay_info_files(node, dependency_job_id=husk_job_id)
+    return _submit_to_deadline(job_info, plugin_info)
+
+
+def _build_overlay_info_files(node, dependency_job_id=None):
+    """
+    Shared builder used by both the dependent path and the standalone submitter.
+
+    When called from the husk HDA (dependency_job_id is set) we derive the
+    InputImage from the same outdir/imgname/ver logic.
+
+    When called from a standalone overlay HDA we expect an explicit `inputimage` parm.
+    """
+    user = getpass.getuser()
+    timestamp = time.strftime("%y-%m-%d %H:%M:%S")
+
+    # ---- common job controls ----
+    job_name = _parm(node, "jobname", "Untitled")
+    if dependency_job_id:
+        # make it obvious this is the overlay companion
+        lower = job_name.lower()
+        if (not lower.endswith("_stats")
+                and not lower.endswith("_overlay")
+                and not lower.endswith("renderstatsoverlay")):
+            job_name = job_name + " :: renderstatsoverlay"
+
+    comment        = _parm(node, "comment", "renderstats overlay – submitted by <{}> {}".format(user, timestamp))
+    pool           = _parm(node, "pool", "")
+    secondary_pool = _parm(node, "secondarypool", "")
+    group          = _parm(node, "group", "none")
+    priority       = _parm_int(node, "priority", 50)
+    # overlay is very light – default to 1 frame per task is fine
+    chunk_size     = _parm_int(node, "framespertask", 1)
+    suspended      = _parm_bool(node, "jobsuspended", False)
+
+    # Frame range (same logic as husk)
+    start     = _parm_int(node, "frangex", int(hou.frame()))
+    end       = _parm_int(node, "frangey", int(hou.frame()))
+    fml_only  = _parm_bool(node, "fmlonly", False)
+    frame_inc = _parm_int(node, "frameinc", 1)
+    frames    = _build_frames(start, end, frame_inc, fml_only)
+
+    # ---- Input / Output images ----
+    if dependency_job_id:
+        # Derive from the same paths the husk job will write
+        input_image = _get_husk_output_image(node)
+        if not input_image:
+            raise RuntimeError(
+                "Cannot create overlay job: husk output image path is empty "
+                "(check outdir / imgname parms)."
+            )
+        # Optional explicit override, otherwise build the sibling-folder path
+        output_image = _parm(node, "rso_outputimage", "")
+        if not output_image:
+            imgname = _parm(node, "imgname", "render")
+            output_image = _build_overlay_output_path(input_image, imgname)
+    else:
+        # Standalone HDA – require explicit input
+        input_image = _parm(node, "inputimage", "")
+        if not input_image:
+            raise RuntimeError("inputimage parameter is required for standalone overlay submission.")
+        output_image = _parm(node, "outputimage", "")
+        if not output_image:
+            # Try to derive a sensible sibling path from the given input
+            # Fall back to empty (tool default) only if we can't parse it.
+            imgname = _parm(node, "imgname", "") or _guess_imgname_from_path(input_image)
+            output_image = _build_overlay_output_path(input_image, imgname) if imgname else ""
+
+    # ---- Overlay appearance (all optional – plugin has good defaults) ----
+    # Note: user renamed the HDA parms from rs_* → rso_*
+    mode        = _parm(node, "rso_mode", "overlay")
+    align       = _parm(node, "rso_align", "bottomleft")
+    scale       = _parm(node, "rso_scale", "1.0")
+    # rso_width is a float parm on the HDA → append "%"
+    stats_width = str(_parm(node, "rso_width", "30")).rstrip("%") + "%"
+    edge        = _parm(node, "rso_edge", "")
+    margin      = _parm(node, "rso_margin", "")
+    color_space = _parm(node, "rso_colorspace", "")
+    template    = _parm(node, "rso_template", "")
+    aov         = _parm(node, "rso_aov", "")
+    resize      = _parm(node, "rso_resize", "")
+    extras      = _parm(node, "rso_extras", "")
+
+    # ---- Job Info ----
+    job_lines = [
+        "Plugin=HouRenderStatsOverlay",
+        "Name={}".format(job_name),
+        "Comment={}".format(comment),
+        "Pool={}".format(pool),
+        "SecondaryPool={}".format(secondary_pool),
+        "Group={}".format(group),
+        "Priority={}".format(priority),
+        "Frames={}".format(frames),
+        "ChunkSize={}".format(chunk_size),
+        "OnJobComplete=Nothing",
+    ]
+    if suspended:
+        job_lines.append("InitialStatus=Suspended")
+
+    if dependency_job_id:
+        job_lines.append("JobDependencies={}".format(dependency_job_id))
+
+    # ---- Plugin Info ----
+    plugin_lines = [
+        "InputImage={}".format(input_image.replace("\\", "/")),
+        "OutputImage={}".format(output_image.replace("\\", "/")),
+        "Mode={}".format(mode),
+        "Align={}".format(align),
+        "Scale={}".format(scale),
+        "StatsWidth={}".format(stats_width),
+        "Edge={}".format(edge),
+        "Margin={}".format(margin),
+        "ColorSpace={}".format(color_space),
+        "Template={}".format(template.replace("\\", "/")),
+        "AOV={}".format(aov),
+        "Resize={}".format(resize),
+        "Extras={}".format(extras),
+    ]
+
+    return _write_temp_job_files("hourenderstatsoverlay", job_lines, plugin_lines)
+
+
+def _get_husk_output_image(node):
+    """Reconstruct the same OutImage path that the husk job will use."""
+    outdir  = _parm(node, "outdir", "")
+    imgname = _parm(node, "imgname", "render")
+    ver     = _parm_int(node, "ver", 1)
+    ver_str = "v{:02d}".format(ver)
+
+    if outdir and imgname:
+        return "{}/{}/{}/{}.$F4.exr".format(
+            outdir.rstrip("/\\"), imgname, ver_str, imgname
+        )
+    return ""
+
+
+def _build_overlay_output_path(input_image, imgname):
+    """
+    Turn an EXR path into the sibling-folder preview path.
+
+    Example
+    -------
+    input  : .../render/fx/v08/fx.$F4.exr
+    output : .../render/fx/v08_renderstatsoverlay/preview.fx.$F4.jpg
+    """
+    if not input_image or not imgname:
+        return ""
+
+    # Normalise separators for easy splitting, then restore at the end
+    path = input_image.replace("\\", "/")
+    parts = path.rstrip("/").split("/")
+
+    if len(parts) < 2:
+        return ""
+
+    # version folder is the parent of the file
+    version_folder = parts[-2]          # e.g. "v08"
+    parent_dir = "/".join(parts[:-2])   # e.g. ".../render/fx"
+
+    new_folder = version_folder + "_renderstatsoverlay"
+    filename = "preview.{}.$F4.jpg".format(imgname)
+
+    if parent_dir:
+        return "{}/{}/{}".format(parent_dir, new_folder, filename)
+    return "{}/{}".format(new_folder, filename)
+
+
+def _guess_imgname_from_path(path):
+    """
+    Best-effort extraction of the image stem from a path that may contain
+    frame tokens ($F4, ####, etc.).
+    """
+    if not path:
+        return ""
+    base = os.path.basename(path.replace("\\", "/"))
+    # strip extension
+    stem = os.path.splitext(base)[0]
+    # remove common frame token suffixes
+    stem = re.sub(r"[\._]?(\$F\d*|#+)$", "", stem)
+    return stem or "render"
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+def _write_temp_job_files(prefix, job_lines, plugin_lines):
     tmp_dir = tempfile.gettempdir()
-    job_info_path = os.path.join(tmp_dir, "husk2deadline_job_info.job")
-    plugin_info_path = os.path.join(tmp_dir, "husk2deadline_plugin_info.job")
+    job_info_path = os.path.join(tmp_dir, "{}_job_info.job".format(prefix))
+    plugin_info_path = os.path.join(tmp_dir, "{}_plugin_info.job".format(prefix))
 
     with open(job_info_path, "w") as f:
         f.write("\n".join(job_lines) + "\n")
@@ -199,9 +440,6 @@ def _build_info_files(node):
     return job_info_path, plugin_info_path
 
 
-# ---------------------------------------------------------------------------
-# Call deadlinecommand
-# ---------------------------------------------------------------------------
 def _submit_to_deadline(job_info, plugin_info):
     deadline_cmd = _find_deadline_command()
     if not deadline_cmd:
@@ -301,13 +539,13 @@ def _get_effective_resolution(node):
     aspect = base_w / base_h
 
     # ---- Preferred Height ----
-    if mode in ("preferred height", "height"):
+    if mode in ("preferred_height", "height"):
         h = value
         w = h * aspect
         return _nearest_even(w), _nearest_even(h)
 
     # ---- Preferred Width ----
-    if mode in ("preferred width", "width"):
+    if mode in ("preferred_width", "width"):
         w = value
         h = w / aspect
         return _nearest_even(w), _nearest_even(h)
@@ -325,7 +563,6 @@ def _aspect_ratio_name(w, h):
         return "?"
     r = w / float(h)
 
-    # (target_ratio, name) – ordered from most specific / common
     known = [
         (1.0,    "1:1"),
         (1.25,   "5:4"),
@@ -338,14 +575,13 @@ def _aspect_ratio_name(w, h):
         (2.35,   "2.35:1"),
         (2.39,   "2.39:1"),
         (2.40,   "2.40:1"),
-        # vertical / portrait
         (0.5625, "9:16"),
         (0.75,   "3:4"),
         (0.8,    "4:5"),
     ]
 
     for target, name in known:
-        if abs(r - target) < 0.012:          # ~1.2% tolerance
+        if abs(r - target) < 0.012:
             return name
 
     return "{:.3f}".format(r)
