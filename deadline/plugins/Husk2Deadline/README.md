@@ -156,14 +156,6 @@ Useful optional parameters (same names as above):
 
 ---
 
-## Differences from previous scripts
-
-- No massive dictionary of Mantra / Arnold / Redshift / V-Ray keys
-- No reliance on the official Houdini Deadline submission library
-- Cleaner argument construction and frame-token expansion
-- Explicit, readable plugin class
-- Easy to extend (add GPU affinity, multi-frame chunks, etc.)
-
 ## License
 
 Do whatever you want with this code inside your studio.  

@@ -1,0 +1,22 @@
+[About]
+Description=Generates a self-contained HTML Karma render statistics report from an EXR (using SideFX renderstatsreport via hython). Defaults only – no extra options exposed.
+Author=Custom Studio Plugin
+Version=1.0
+
+[HythonExecutable]
+Type=multifilename
+Label=Hython Executable
+Description=Fallback path to hython (usually <Houdini>/bin/hython.exe or hython on Linux). Jobs submitted from Houdini inject their own HythonExecutable based on the build that was used, so this value is only needed for old jobs or manual submissions. Prefer hython.exe over the .bat wrapper.
+DefaultValue=
+
+[RenderStatsReportScript]
+Type=string
+Label=renderstatsreport.py Script
+Description=Path (or just the filename) of the renderstatsreport.py script. If you leave it as the default "renderstatsreport.py", hython will find it the same way your local test did (when run from the Houdini bin folder or with Houdini's Python path).
+DefaultValue=renderstatsreport.py
+
+[Plugin]
+Type=string
+Label=Plugin Name
+DefaultValue=HouRenderStatsReport
+Disabled=true
