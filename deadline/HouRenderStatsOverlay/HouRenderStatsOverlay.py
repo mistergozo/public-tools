@@ -64,7 +64,15 @@ class HouRenderStatsOverlay(DeadlinePlugin):
     # Executable  →  hython
     # ------------------------------------------------------------------
     def RenderExecutable(self):
-        # Config key set in Deadline Monitor → Configure Plugins → HouRenderStatsOverlay
+        # Prefer the path that travelled with this specific job.
+        # The submitter injects the hython belonging to the Houdini build
+        # that was used to submit, so different versions just work
+        # without touching Configure Plugins.
+        job_exe = self.GetPluginInfoEntryWithDefault("HythonExecutable", "")
+        if job_exe:
+            return RepositoryUtils.CheckPathMapping(job_exe).replace("\\", "/")
+
+        # Fallback to the global plugin config (old jobs / manual submissions)
         return self.GetConfigEntry("HythonExecutable")
 
     # ------------------------------------------------------------------

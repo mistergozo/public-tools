@@ -1,8 +1,10 @@
 # HouRenderStatsOverlay – Deadline Plugin for SideFX renderstatsoverlay
 
-Simple Deadline plugin that runs Houdini’s `renderstatsoverlay` utility on finished Karma EXRs so you get a JPG/PNG with the render stats baked in (overlay or sidebar).
+Simple Deadline plugin that runs Houdini’s `renderstatsoverlay` utility (via **hython + the .py script**) on finished Karma EXRs so you get a JPG/PNG with the render stats baked in (overlay or sidebar).
 
-Intended to be submitted as a dependent job after a `Husk2Deadline` (or any husk) render finishes.
+The official `.bat` launcher is intentionally avoided – it is unreliable under Deadline.
+
+Intended to be submitted as a dependent job after a `Husk2Deadline` (or any husk) render finishes, or as a standalone job for already-rendered EXRs.
 
 ## Features
 
@@ -31,14 +33,13 @@ Intended to be submitted as a dependent job after a `Husk2Deadline` (or any husk
 Tools → Configure Plugins → HouRenderStatsOverlay
 ```
 
-Set **Render Stats Overlay Executable** to the launcher on your workers, e.g.
+**Important – do NOT use the .bat wrapper.**  
+It frequently fails under Deadline with “The system cannot find the path specified.”
 
-```
-C:/Program Files/Side Effects Software/Houdini 20.5.XXX/bin/renderstatsoverlay.bat
-```
-
-or the Linux equivalent (`renderstatsoverlay`).  
-Using the `.bat` / shell launcher is preferred because it sets up `$HFS` and the Python environment correctly.
+| Config key                       | Notes |
+|----------------------------------|-------|
+| **Hython Executable**            | Fallback only. Jobs submitted via `husk_submit.py` automatically inject the `hython` that belongs to the Houdini build you submitted from. Prefer `hython.exe` over the `.bat`. |
+| **renderstatsoverlay.py Script** | Default `renderstatsoverlay.py` is fine – hython finds it the same way your local tests did. |
 
 ## Plugin Info keys (for job submission)
 
@@ -70,6 +71,13 @@ StatsWidth=30%
 At 2160p you will probably want `Scale=2.5` (or higher) so the text stays readable.  
 A future improvement can auto-derive the scale from image height.
 
-## Next step
+## Integration with Husk2Deadline
 
-Wire this into `husk_submit.py` so that after the main husk job is submitted, a dependent `HouRenderStatsOverlay` job is created automatically (same frames, Job Dependencies = the husk JobID).
+The companion `husk_submit.py` already supports this plugin in two ways:
+
+1. **Dependent job** – enable the toggle `generate_renderstatsoverlay_job` on your husk HDA.  
+   After the husk job is submitted a second job is created with `JobDependencies=<husk JobID>` and the same frame list. The input EXR path is automatically taken from the husk output path.
+
+2. **Standalone** – call `husk_submit.submit_renderstats_overlay(node)` from a separate HDA when you want to generate overlays for already-rendered EXRs.
+
+See the Husk2Deadline README for the full list of `rso_*` parameters.

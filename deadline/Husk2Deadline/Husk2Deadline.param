@@ -6,7 +6,7 @@ Version=1.0
 [HuskExecutable]
 Type=multifilename
 Label=Husk Executable
-Description=Full path to husk (usually <Houdini>/bin/husk.exe or husk on Linux). You can use version tokens if your farm uses them.
+Description=Fallback path to husk (usually <Houdini>/bin/husk.exe or husk on Linux). Jobs submitted from Houdini inject their own HuskExecutable based on the build that was used, so this value is only needed for old jobs or manual submissions.
 DefaultValue=
 
 [Plugin]

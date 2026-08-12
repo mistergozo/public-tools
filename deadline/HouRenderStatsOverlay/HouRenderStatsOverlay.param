@@ -6,7 +6,7 @@ Version=1.1
 [HythonExecutable]
 Type=multifilename
 Label=Hython Executable
-Description=Full path to hython (usually <Houdini>/bin/hython.exe or hython on Linux). This is more reliable than the .bat wrapper under Deadline.
+Description=Fallback path to hython (usually <Houdini>/bin/hython.exe or hython on Linux). Jobs submitted from Houdini inject their own HythonExecutable based on the build that was used, so this value is only needed for old jobs or manual submissions. Prefer hython.exe over the .bat wrapper.
 DefaultValue=
 
 [RenderStatsOverlayScript]

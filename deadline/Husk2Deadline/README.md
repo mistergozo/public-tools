@@ -38,27 +38,29 @@ In Deadline Monitor (super-user mode):
 Tools → Configure Plugins → Husk2Deadline
 ```
 
-Set **Husk Executable** to the full path of `husk` on your workers, e.g.
-
-```
-C:/Program Files/Side Effects Software/Houdini 20.5.XXX/bin/husk.exe
-```
-
-or the Linux equivalent.  
-You can use environment-variable style tokens if your farm already does so for other plugins.
+**Husk Executable** is now only a *fallback*.  
+Jobs submitted via `husk_submit.py` automatically inject the `husk` that belongs to the Houdini build you submitted from (so 21.0.671 / 22.0.512 / etc. just work).  
+You only need the global path for old jobs or manual submissions. You can leave a sensible default or even leave it blank.
 
 ### 2. Houdini side
 
 Put `husk_submit.py` somewhere on the Houdini Python path (or next to your HDA).
 
-From a Python Script button / HDA callback:
+**Main husk submit (with optional dependent overlay):**
 
 ```python
 import husk_submit
 husk_submit.submit(kwargs["node"])
 ```
 
-### Expected HDA Parameters
+**Standalone RenderStats Overlay** (for already-rendered EXRs):
+
+```python
+import husk_submit
+husk_submit.submit_renderstats_overlay(kwargs["node"])
+```
+
+### Expected HDA Parameters (Husk2Deadline)
 
 | Parameter name   | Type     | Purpose                          | Example                  |
 |------------------|----------|----------------------------------|--------------------------|
@@ -85,6 +87,12 @@ husk_submit.submit(kwargs["node"])
 | `usdloglevel`    | int      | verbosity (0-9)                  | `2`                      |
 | `pool`           | string   | Deadline pool                    |                          |
 | `priority`       | int      | 0-100                            | `50`                     |
+| **`generate_renderstatsoverlay_job`** | **toggle** | **Create dependent overlay job after husk** | **off** |
+| `rso_mode`        | string   | overlay / sidebar                | `overlay`                |
+| `rso_align`       | string   | alignment                        | `bottomleft`             |
+| `rso_scale`       | string   | stats graphic scale              | `1.0` (use ~2.5 for 4K)  |
+| `rso_width`       | string   | stats width                      | `30%`                    |
+| `rso_outputimage` | string   | optional override for overlay output | (empty = tool default) |
 
 **Frame logic (`fmlonly` + `frameinc`):**
 
@@ -111,6 +119,42 @@ husk_submit.submit(kwargs["node"])
 The live label (`reslabel`) shows the effective resolution + pixel count + aspect ratio.
 
 You can rename parameters in the HDA; just update the `_parm(...)` calls in `husk_submit.py`.
+
+---
+
+## Dependent Render Stats Overlay
+
+When `generate_renderstatsoverlay_job` is enabled, after the main husk job is successfully submitted a second job using the **HouRenderStatsOverlay** plugin is created with:
+
+- Same frame range / FML logic
+- `JobDependencies = <husk JobID>`
+- `InputImage` automatically derived from `outdir / imgname / vXX / imgname.$F4.exr`
+- Appearance controlled by the `rso_*` parameters (or plugin defaults if the parms are missing)
+
+This means the overlay tasks only start once the corresponding husk frame has finished.
+
+---
+
+## Standalone Overlay HDA
+
+For EXRs that already exist on disk you can use a separate HDA that calls:
+
+```python
+husk_submit.submit_renderstats_overlay(kwargs["node"])
+```
+
+**Minimum required parameter:**
+
+| Parameter     | Type   | Purpose                          |
+|---------------|--------|----------------------------------|
+| `inputimage`  | string | EXR path with `$F4` / `####` tokens |
+
+Useful optional parameters (same names as above):
+
+- `outputimage`, `rso_mode`, `rso_align`, `rso_scale`, `rso_width`, …
+- Standard job controls: `jobname`, `pool`, `priority`, `frangex`/`frangey`, `fmlonly`, `frameinc`, etc.
+
+---
 
 ## Differences from previous scripts
 
