@@ -77,7 +77,7 @@ husk_submit.submit_renderstats_overlay(kwargs["node"])
 | `camera`         | string   | `--camera`                       | `/cameras/cam1`          |
 | `resolutionx`    | string   | base width                       | `1920`                   |
 | `resolutiony`    | string   | base height                      | `1080`                   |
-| `resmodifier`    | ordered menu | Full / Multiply (x) / Preferred Height / Preferred Width | `Full` |
+| `resmodifier`    | ordered menu | Full / Multiply (x) / preferred_height / preferred_width | `Full` |
 | `resvalue`       | float    | multiplier or target height/width | `0.5` / `1080`         |
 | `reslabel`       | string (disabled) | live effective resolution label | (auto)              |
 | `outdir`         | string   | output root                      | `$HIP/render`            |
@@ -93,6 +93,7 @@ husk_submit.submit_renderstats_overlay(kwargs["node"])
 | `rso_scale`       | string   | stats graphic scale              | `1.0` (use ~2.5 for 4K)  |
 | `rso_width`       | string   | stats width                      | `30%`                    |
 | `rso_outputimage` | string   | optional override for overlay output | (empty = tool default) |
+| **`generate_renderstatsreport_job`** | **toggle** | **Create dependent HTML report job after husk** | **off** |
 
 **Frame logic (`fmlonly` + `frameinc`):**
 
@@ -113,8 +114,8 @@ husk_submit.submit_renderstats_overlay(kwargs["node"])
 |-------------------|--------------------------------|--------|
 | Full              | ignored                        | base resolution |
 | Multiply (x)      | scale factor (e.g. 0.5)        | base × value (rounded to nearest even) |
-| Preferred Height  | target height in pixels        | height = value, width from aspect |
-| Preferred Width   | target width in pixels         | width = value, height from aspect |
+| preferred_height  | target height in pixels        | height = value, width from aspect |
+| preferred_width   | target width in pixels         | width = value, height from aspect |
 
 The live label (`reslabel`) shows the effective resolution + pixel count + aspect ratio.
 
@@ -132,6 +133,22 @@ When `generate_renderstatsoverlay_job` is enabled, after the main husk job is su
 - Appearance controlled by the `rso_*` parameters (or plugin defaults if the parms are missing)
 
 This means the overlay tasks only start once the corresponding husk frame has finished.
+
+---
+
+## Dependent Render Stats Report (HTML)
+
+When `generate_renderstatsreport_job` is enabled, after the main husk job is successfully submitted a second job using the **HouRenderStatsReport** plugin is created with:
+
+- Same frame range / FML logic
+- `JobDependencies = <husk JobID>`
+- `InputImage` automatically derived from the husk output path
+- `OutputHTML` left empty → tool writes `<basename>.html` next to the EXR
+- **Defaults only** – no extra parameters exposed
+
+The HTML report is self-contained and includes performance tables, AOV thumbnails, scene breakdown, etc.
+
+You can enable both the overlay and the report toggles at the same time if you want both outputs.
 
 ---
 
@@ -155,6 +172,14 @@ Useful optional parameters (same names as above):
 - Standard job controls: `jobname`, `pool`, `priority`, `frangex`/`frangey`, `fmlonly`, `frameinc`, etc.
 
 ---
+
+## Differences from previous scripts
+
+- No massive dictionary of Mantra / Arnold / Redshift / V-Ray keys
+- No reliance on the official Houdini Deadline submission library
+- Cleaner argument construction and frame-token expansion
+- Explicit, readable plugin class
+- Easy to extend (add GPU affinity, multi-frame chunks, etc.)
 
 ## License
 
