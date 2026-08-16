@@ -104,23 +104,20 @@ class Husk2Deadline(DeadlinePlugin):
         args.append("1")
 
         # Output
+        # If OutImage is provided we force -o (override).
+        # If it is empty we deliberately do NOT add -o so husk uses the
+        # productName already authored in the USD stage (Karma Render Settings
+        # "Output Picture"). This is the preferred behaviour for pure USD /
+        # standalone submissions.
+        # Always pass --make-output-path so husk creates missing folders for
+        # whatever output path ends up being used.
         if output_image:
             out = RepositoryUtils.CheckPathMapping(output_image).replace("\\", "/")
             # Replace $F / $F4 style tokens with the actual zero-padded frame
             out = self._expand_frame_token(out, frame)
             args.append("-o")
             args.append(out)
-            args.append("--make-output-path")
-        else:
-            # Fallback: next to the USD, under a "render" folder
-            usd_dir = os.path.dirname(scene)
-            render_dir = os.path.join(usd_dir, "render")
-            base = Path.GetFileNameWithoutExtension(scene)
-            padded = StringUtils.ToZeroPaddedString(frame, 4)
-            out = "{}/{}.{}.exr".format(render_dir, base, padded)
-            args.append("-o")
-            args.append(out)
-            args.append("--make-output-path")
+        args.append("--make-output-path")
 
         # Renderer / engine
         if engine:
